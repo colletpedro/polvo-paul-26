@@ -82,13 +82,27 @@ no target.
   (eliminatórias, Nations League, Copa América/Euro) para **enriquecer o treino**, se necessário.
 - Endpoints: `/fixtures`, `/fixtures/statistics`, `/teams/statistics`, `/standings`.
 
-### 2.4 Princípio de paridade treino↔inferência (crítico)
+### 2.4 Princípio de paridade treino↔inferência (DECISÃO MAIS IMPORTANTE DO PROJETO)
 As features de inferência da WC2026 (football-data.org free) são **só gols + contexto** — sem
 chutes, posse ou xG. Para evitar distribution shift, **o treino deve usar exatamente a mesma camada
 de features ativa na inferência** (ver arquitetura de duas camadas em §3.0): o modelo de produção
 (Tier 1) treina só com gols+contexto, mesmo tendo o StatsBomb com dados ricos. Os dados ricos só
 entram num modelo Tier 2 separado, em que treino e inferência compartilham a mesma fonte de
 chutes/xG.
+
+> ⚠️ **É a violação mais fácil de cometer "no calor do código"** — o StatsBomb oferece xG/posse de
+> bandeja no treino, e usá-los infla a métrica de validação enquanto a previsão real (sem esses
+> campos) degrada silenciosamente.
+
+**Checklist de paridade — rodar ANTES de qualquer `fit()`:**
+- [ ] A lista de colunas do dataset de treino é **idêntica** à do dataset de inferência (mesmo nome,
+      mesma ordem). Assertar em código: `assert train_cols == infer_cols`.
+- [ ] Nenhuma feature do treino vem de campo **ausente na inferência** (chutes, posse, xG real do
+      StatsBomb) — a menos que `tier2_enabled=True` em ambos.
+- [ ] A mesma `tier` está ativa nos dois lados (um modelo Tier 1 nunca prevê com features Tier 2 e
+      vice-versa).
+- [ ] A mesma fórmula/normalização é aplicada a treino e inferência (fit do scaler só no treino).
+- [ ] Teste automatizado em `tests/` que falha se as colunas divergirem.
 
 ### 2.5 Estratégia de coleta e cache
 - Persistir todas as respostas em cache local (JSON/Parquet) para respeitar limites de requisição e
@@ -301,11 +315,32 @@ polvo-paul-26/
 - [x] **Previsão ao vivo** — fora da v1; movida para evolução futura (§8). v1 é **pré-partida**.
 
 ### Em aberto (a resolver na implementação)
+- [ ] 🔴 **BLOQUEADOR #1 — snapshot de ranking FIFA (CSV, §2.8).** Sem ele a convenção A/B (§1.4)
+      não funciona e **nenhuma feature de contexto fecha** (delta_ranking, qualidade do adversário).
+      Resolver **antes de qualquer modelo** — ver ordem em §10.
 - [ ] Definir o tratamento exato de H2H (prior/shrinkage) e seu peso.
 - [ ] Escolher entre XGBoost e LightGBM após primeiro benchmark.
 - [ ] Escolher a fonte de scraping do Tier 2 (FotMob / FootyStats / RealGM) e checar ToS.
-- [ ] Obter/versionar o snapshot de ranking FIFA (CSV) — §2.8.
 - [ ] Validar a profundidade histórica de fixtures que o football-data.org free expõe para a WC2026
       (e se há atraso relevante para previsão pré-jogo do mata-mata).
-- [ ] Definir a fórmula exata do proxy de xG (pesos por tipo de chute / localização).
-```
+- [ ] Definir a fórmula exata do proxy de xG (pesos por tipo de chute / localização) — só Tier 2.
+
+---
+
+## 10. Ordem de implementação (sequência obrigatória)
+
+A ordem abaixo existe porque dois passos são **bloqueadores** de tudo que vem depois. Não pular.
+
+1. 🔴 **Ranking FIFA (CSV de referência) — BLOQUEADOR #1.** Sem o ranking não há convenção A/B
+   (§1.4) nem features de contexto (§3.2). É o **primeiro entregável**, antes de qualquer coleta de
+   features ou modelo. Fonte: snapshot oficial da FIFA → `data/reference/fifa_ranking.csv`.
+2. **Coletores Tier 1.** `footballdata.py` (WC2026: fixtures, standings, resultados) e
+   `statsbomb.py` (treino histórico). Persistir em cache (§2.5).
+3. **Build de features Tier 1** (gols + contexto), unindo resultados + ranking FIFA.
+4. 🟡 **GATE DE PARIDADE (§2.4) — antes de qualquer `fit()`.** Rodar o checklist de paridade e o
+   teste automatizado de igualdade de colunas treino↔inferência. **Nenhum modelo é treinado antes
+   deste gate passar.**
+5. **Baseline** (regressão logística multinomial) → métrica vs. baseline ingênuo (§5–6).
+6. **Modelo principal** (gradient boosting) + calibração.
+7. *(Opcional, a qualquer momento depois)* **Tier 2** (scraping de chutes/xG) com degradação
+   graciosa — nunca bloqueia os passos acima.
