@@ -313,11 +313,11 @@ polvo-paul-26/
       chutes/xG via scraping **opcional com degradação graciosa** (§3.0).
 - [x] **Janela de treino** — StatsBomb: WC2022, WC2018, Euro 2024/2020, Copa América 2024 (§2.6).
 - [x] **Previsão ao vivo** — fora da v1; movida para evolução futura (§8). v1 é **pré-partida**.
+- [x] **🔴 BLOQUEADOR #1 — ranking FIFA RESOLVIDO** — `data/reference/fifa_ranking.csv` criado com
+      os 48 participantes (rank, pontos, confederação), snapshot **2026-06-11**, cross-checked.
+      Destrava a convenção A/B (§1.4) e as features de contexto (§3.1–3.2). Ver `data/reference/`.
 
 ### Em aberto (a resolver na implementação)
-- [ ] 🔴 **BLOQUEADOR #1 — snapshot de ranking FIFA (CSV, §2.8).** Sem ele a convenção A/B (§1.4)
-      não funciona e **nenhuma feature de contexto fecha** (delta_ranking, qualidade do adversário).
-      Resolver **antes de qualquer modelo** — ver ordem em §10.
 - [ ] Definir o tratamento exato de H2H (prior/shrinkage) e seu peso.
 - [ ] Escolher entre XGBoost e LightGBM após primeiro benchmark.
 - [ ] Escolher a fonte de scraping do Tier 2 (FotMob / FootyStats / RealGM) e checar ToS.
