@@ -36,6 +36,25 @@ _ROOT = Path(__file__).parents[2]
 _RANKING_WC2026 = _ROOT / "data" / "reference" / "fifa_ranking.csv"
 _RANKING_FULL   = _ROOT / "data" / "reference" / "fifa_ranking_full.csv"
 
+# Colunas de feature Tier 1 — ordem canônica compartilhada por treino e inferência.
+# Qualquer coluna fora desta lista é metadado (source, match_id, status, tla_*, etc.).
+# O gate de paridade (SPEC.md §2.4) verifica que ambos os datasets produzem exatamente esta lista.
+FEATURE_COLS: list[str] = [
+    "stage_ord",
+    "team_A", "team_B",
+    "A_points", "A_goals_for", "A_goals_against", "A_goal_diff",
+    "A_goals_for_pg", "A_goals_against_pg", "A_clean_sheets", "A_form_score",
+    "B_points", "B_goals_for", "B_goals_against", "B_goal_diff",
+    "B_goals_for_pg", "B_goals_against_pg", "B_clean_sheets", "B_form_score",
+    "A_fifa_rank", "A_fifa_points", "A_confederation",
+    "B_fifa_rank", "B_fifa_points", "B_confederation",
+    "delta_rank",
+    "A_days_rest", "B_days_rest", "delta_rest",
+]
+
+# Colunas-alvo — separadas das features intencionalmente.
+TARGET_COL = "result_90min"
+
 # Encoding ordinal de fase (compartilhado treino e inferência — SPEC.md §3.5)
 STAGE_ORD: dict[str, int] = {
     # StatsBomb
@@ -309,19 +328,19 @@ def build_training_dataset() -> pd.DataFrame:
                 # Descanso
                 "A_days_rest": _days_rest(m["match_date"], last_group_date(team_A)),
                 "B_days_rest": _days_rest(m["match_date"], last_group_date(team_B)),
-                # Target
-                "result_90min": result,
             }
-            row["delta_rest"] = (
-                (row["A_days_rest"] - row["B_days_rest"])
-                if row["A_days_rest"] is not None and row["B_days_rest"] is not None
-                else None
-            )
+            rest_A = row["A_days_rest"]
+            rest_B = row["B_days_rest"]
+            row["delta_rest"] = (rest_A - rest_B) if rest_A is not None and rest_B is not None else None
+            row["result_90min"] = result
             rows.append(row)
 
     df = pd.DataFrame(rows)
     df["match_date"] = pd.to_datetime(df["match_date"])
-    return df.sort_values("match_date").reset_index(drop=True)
+    df = df.sort_values("match_date").reset_index(drop=True)
+    # Reordena para garantir paridade com inferência (SPEC.md §2.4).
+    meta = ["source", "competition", "match_id", "match_date", "stage"]
+    return df[meta + FEATURE_COLS + [TARGET_COL]]
 
 
 # ---------------------------------------------------------------------------
@@ -470,4 +489,9 @@ def build_inference_dataset() -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
     df["match_date"] = pd.to_datetime(df["match_date"])
-    return df.sort_values("match_date").reset_index(drop=True)
+    df = df.sort_values("match_date").reset_index(drop=True)
+    # Reordena para garantir paridade com treino (SPEC.md §2.4).
+    # Colunas extras de metadado (status, tla_*) ficam no final para não interferir no modelo.
+    meta = ["source", "competition", "match_id", "match_date", "status", "stage"]
+    extra_meta = ["tla_A", "tla_B"]
+    return df[meta + FEATURE_COLS + [TARGET_COL] + extra_meta]
