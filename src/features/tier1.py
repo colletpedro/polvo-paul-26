@@ -41,7 +41,6 @@ _RANKING_FULL   = _ROOT / "data" / "reference" / "fifa_ranking_full.csv"
 # O gate de paridade (SPEC.md §2.4) verifica que ambos os datasets produzem exatamente esta lista.
 FEATURE_COLS: list[str] = [
     "stage_ord",
-    "team_A", "team_B",
     "A_points", "A_goals_for", "A_goals_against", "A_goal_diff",
     "A_goals_for_pg", "A_goals_against_pg", "A_clean_sheets", "A_form_score",
     "B_points", "B_goals_for", "B_goals_against", "B_goal_diff",
@@ -87,9 +86,11 @@ _TEAM_ALIASES: dict[str, str] = {
     "Cape Verde":           "Cape Verde Islands",
     "Cabo Verde":           "Cape Verde Islands",
     "DR Congo":             "Congo DR",
+    # StatsBomb AFCON → ranking full
+    "Cape Verde Islands":   "Cabo Verde",
+    "Gambia":               "The Gambia",
     # football-data.org → ranking full
     "Bosnia-Herzegovina":   "Bosnia and Herzegovina",
-    "Cape Verde Islands":   "Cape Verde Islands",
     "Congo DR":             "Congo DR",
 }
 
@@ -242,9 +243,11 @@ def build_training_dataset() -> pd.DataFrame:
     for (cid, sid), comp_matches in groupby(all_matches_sorted, key=comp_key):
         comp_matches = list(comp_matches)
         label = comp_matches[0].get("_training_label", f"comp_{cid}_s{sid}")
+        # Inclui apenas partidas de mata-mata: stage_ord > 0 (STAGE_ORD é a fonte de
+        # verdade; evita depender do nome exato "Group Stage" de cada torneio).
         knockout = [
             m for m in comp_matches
-            if m.get("competition_stage", {}).get("name") != "Group Stage"
+            if STAGE_ORD.get(m.get("competition_stage", {}).get("name", ""), -1) > 0
             and m["match_status"] == "available"
         ]
 
@@ -338,8 +341,12 @@ def build_training_dataset() -> pd.DataFrame:
     df = pd.DataFrame(rows)
     df["match_date"] = pd.to_datetime(df["match_date"])
     df = df.sort_values("match_date").reset_index(drop=True)
+    # Garantia: todas as linhas são mata-mata (stage_ord > 0).
+    assert (df["stage_ord"] > 0).all(), (
+        "build_training_dataset() gerou linhas de fase de grupos — revisar filtro de knockout."
+    )
     # Reordena para garantir paridade com inferência (SPEC.md §2.4).
-    meta = ["source", "competition", "match_id", "match_date", "stage"]
+    meta = ["source", "competition", "match_id", "match_date", "stage", "team_A", "team_B"]
     return df[meta + FEATURE_COLS + [TARGET_COL]]
 
 
@@ -492,6 +499,6 @@ def build_inference_dataset() -> pd.DataFrame:
     df = df.sort_values("match_date").reset_index(drop=True)
     # Reordena para garantir paridade com treino (SPEC.md §2.4).
     # Colunas extras de metadado (status, tla_*) ficam no final para não interferir no modelo.
-    meta = ["source", "competition", "match_id", "match_date", "status", "stage"]
+    meta = ["source", "competition", "match_id", "match_date", "status", "stage", "team_A", "team_B"]
     extra_meta = ["tla_A", "tla_B"]
     return df[meta + FEATURE_COLS + [TARGET_COL] + extra_meta]

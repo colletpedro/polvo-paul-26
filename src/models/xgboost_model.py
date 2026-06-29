@@ -48,11 +48,17 @@ PARAM_GRID: dict = {
 # Treino + avaliação
 # ---------------------------------------------------------------------------
 
-def run() -> dict:
-    """Treina XGBoost com GridSearchCV e avalia na validação temporal.
+def train() -> dict:
+    """Treina XGBoost e retorna artefatos para uso externo (análise, inferência).
 
-    Retorna dict com métricas do XGBoost e dos dois baselines ingênuos,
-    mais os melhores hiperparâmetros e o CV log-loss.
+    Retorna dict com:
+      pipeline   — Pipeline sklearn ajustado (prep + clf)
+      le         — LabelEncoder(CLASSES) — converte str↔int para o clf
+      X_train, y_train — dados de treino (DataFrame / ndarray de strings)
+      X_val, y_val     — dados de validação
+      val_df     — DataFrame completo de validação (com metadados: team_A, team_B, etc.)
+      proba      — predict_proba na validação (n_val × 3, colunas = ordem de CLASSES)
+      best_params, cv_log_loss
     """
     df = build_training_dataset()
     train_df, val_df = _temporal_split(df)
@@ -63,15 +69,11 @@ def run() -> dict:
     y_val   = val_df[TARGET_COL].to_numpy()
 
     # XGBoost >= 2.x com objective='multi:softprob' requer labels inteiros (0..n-1).
-    # Fit do LabelEncoder em CLASSES (ordem lexicográfica) garante que o índice i
-    # sempre corresponde a CLASSES[i], mantendo alinhamento com _evaluate().
+    # Fit em CLASSES (ordem lexicográfica) garante coluna i == CLASSES[i] em predict_proba.
     le = LabelEncoder()
     le.fit(CLASSES)  # 'A_win'→0, 'B_win'→1, 'draw'→2
     y_train_enc = le.transform(y_train)
 
-    # --- XGBoost com GridSearchCV ---
-    # objective='multi:softprob': saída é distribuição de probabilidade sobre num_class classes.
-    # eval_metric='mlogloss': alinha com a métrica principal do projeto (§5.1).
     pipe = Pipeline([
         ("prep", _build_preprocessor()),
         ("clf", XGBClassifier(
@@ -95,11 +97,33 @@ def run() -> dict:
     best_pipe = gs.best_estimator_
     best_params = {k.replace("clf__", ""): v for k, v in gs.best_params_.items()}
 
-    # predict_proba: coluna i = P(classe i), onde i = le.transform([CLASSES[i]]).
-    # Como le foi fit em CLASSES, a ordem de colunas já é a ordem de CLASSES. ✓
-    proba_xgb = best_pipe.predict_proba(X_val)
+    # predict_proba: coluna i = P(CLASSES[i]) graças ao le fit em CLASSES. ✓
+    proba = best_pipe.predict_proba(X_val)
 
-    # --- Baselines ingênuos (§6.1) ---
+    return {
+        "pipeline":    best_pipe,
+        "le":          le,
+        "X_train":     X_train,
+        "y_train":     y_train,
+        "X_val":       X_val,
+        "y_val":       y_val,
+        "val_df":      val_df.reset_index(drop=True),
+        "proba":       proba,
+        "best_params": best_params,
+        "cv_log_loss": round(-gs.best_score_, 4),
+    }
+
+
+def run() -> dict:
+    """Treina XGBoost e avalia na validação temporal (interface de métricas).
+
+    Retorna dict com métricas do XGBoost e dos dois baselines ingênuos.
+    """
+    result  = train()
+    y_train = result["y_train"]
+    y_val   = result["y_val"]
+    proba   = result["proba"]
+
     counts = pd.Series(y_train).value_counts()
     prior = np.array([counts.get(c, 0) / len(y_train) for c in CLASSES], dtype=float)
     proba_uniform = np.full((len(y_val), len(CLASSES)), 1.0 / len(CLASSES))
@@ -109,9 +133,9 @@ def run() -> dict:
         "n_train":       len(y_train),
         "n_val":         len(y_val),
         "prior":         {c: round(float(p), 4) for c, p in zip(CLASSES, prior)},
-        "best_params":   best_params,
-        "cv_log_loss":   round(-gs.best_score_, 4),
-        "xgboost":           _evaluate(y_val, proba_xgb),
+        "best_params":   result["best_params"],
+        "cv_log_loss":   result["cv_log_loss"],
+        "xgboost":           _evaluate(y_val, proba),
         "baseline_uniforme": _evaluate(y_val, proba_uniform),
         "baseline_prior":    _evaluate(y_val, proba_prior),
     }

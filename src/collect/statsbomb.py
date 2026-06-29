@@ -49,6 +49,7 @@ TRAINING_COMPETITIONS: list[_Comp] = [
     _Comp(55, 282, "UEFA Euro 2024"),
     _Comp(55,  43, "UEFA Euro 2020"),
     _Comp(223, 282, "Copa America 2024"),
+    _Comp(1267, 107, "African Cup of Nations 2023"),
 ]
 
 
