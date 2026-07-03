@@ -208,3 +208,82 @@ Este jogo é o **principal caso de teste ao vivo** da v1:
 - Se **Senegal vencer ou empatar**: resultado consistente com o mercado estar certo e o modelo excessivamente confiante — possível artefato da proeminência de times UEFA no treino (Euro 2020 e Euro 2024 são 30/47 das linhas).
 
 O resultado de Bélgica×Senegal e dos outros 12 jogos do LAST_32 será registrado em `data/processed/predictions_log.csv` (coluna `actual_result`) para avaliação post-hoc assim que os jogos terminem.
+
+---
+
+# Modo 2 — Mercados de contagem (v1)
+
+> Referência: SPEC_MARKETS.md §5–7 · Stack: Python (SofaScore-only) · Atualizado: 2026-07-03
+
+Alvos: gols, escanteios, cartões — contagem por time, mercados over/under derivados. Este é o resultado do **passo 5** (§10): baseline + modelo v1 + avaliação. A leitura honesta abaixo vale a mesma disciplina do Modo 1: um resultado negativo bem-diagnosticado é resultado, não fracasso (§6.2).
+
+## M2.1 Setup — split temporal leak-free (§7)
+
+| | Edições | Jogos |
+|---|---|---|
+| **Treino** | WC2018 · Euro2020 · CopaAm2021 · AFCON2021 · WC2022 | **259** |
+| **Validação** | AFCON2023 · Euro2024 · CopaAm2024 | **135** |
+
+Corte único por data em **2023-01-01** (todo treino ≤ 2022-12-18; toda validação ≥ 2024-01-13). Diferente do Modo 1, este split **não** espelha o do Modo 1 — e intencionalmente. AFCON2023 foi **jogada em jan–fev de 2024**; colocá-la no treino com WC2022 (2022) na validação, como faz o split do Modo 1, vaza futuro→passado pelos agregados de treino (λ do baseline, `r` do NegBin, `média_do_torneio`). Por isso AFCON2023 vai para a validação (§7). O leak do split do Modo 1 fica **registrado como observação**; o Modo 1 está congelado e não é alterado.
+
+Todas as features vêm de `counts.py` (janela N=10, shrink k=5) e passaram o gate de paridade treino↔inferência (`test_counts_parity.py`, §10 passo 4).
+
+## M2.2 Baseline vs v1 — resultados (§5.5 / §5.6 / §6)
+
+- **Baseline (§5.5):** Poisson de taxa média do **treino**, por alvo (um λ por-time fixo, sem features). Poisson para os 3 alvos, inclusive cartões (baseline ingênuo único). λ/time: gols=1.22 · escanteios=4.59 · cartões=1.85.
+- **v1 (§5.6):** multiplicativo estilo Dixon-Coles simplificado, **zero parâmetro otimizado**: `λ_alvo(time) = ataque_shrunk(time) × defesa_shrunk(oponente) / média_expansiva`. Gols/escanteios via Poisson; cartões via Negative Binomial (r global = 10.40, momentos no treino), com o total do jogo por **convolução truncada** (validada vs Monte Carlo, tolerância 1e-3).
+
+**Log-loss over/under contra realizado** (validação; linhas gols 2.5, escanteios 8.5/9.5/10.5, cartões 3.5/4.5; menor é melhor):
+
+| alvo | modelo | AFCON2023 | CopaAm2024 | Euro2024 | **Agregado** |
+|---|---|---|---|---|---|
+| gols | baseline | 0.6685 | 0.6780 | 0.6793 | **0.6748** |
+| gols | v1 | 0.6719 | 0.6395 | 0.7450 | **0.6918** |
+| escanteios | baseline | 0.6690 | 0.6698 | 0.6915 | **0.6777** |
+| escanteios | v1 | 0.6873 | 0.6783 | 0.6630 | **0.6760** |
+| cartões | baseline | 0.6475 | 0.6681 | 0.6637 | **0.6585** |
+| cartões | v1 | 0.6490 | 0.7173 | 0.7230 | **0.6931** |
+
+Todos os valores rondam **0.69** (o log-loss de uma moeda). Tanto o baseline de taxa fixa quanto o v1 sem parâmetro ajustado são **quase não-informativos** nesses over/under.
+
+## M2.3 Veredito por alvo (sem suavizar)
+
+O teste que separa "ruído puro" de "sinal com escala errada" é o acerto de **direção** do desvio (v1 previu acima do baseline quando o jogo teve contagem acima da média?) e a correlação de sinal:
+
+| alvo | v1 − baseline (agg) | dir_hit | corr | veredito |
+|---|---|---|---|---|
+| escanteios | **−0.0017** | 61.5% | **+0.227** | v1 melhor variante, ganho **marginal**; tem sinal real, teto baixo |
+| gols | +0.0170 | 54.1% | +0.054 | v1 **não supera**; sinal ≈ ruído |
+| cartões | +0.0347 | 51.9% | −0.027 | v1 **não supera**; **ruído puro** |
+
+- **Escanteios** — único alvo com sinal direcional real (corr 0.227, 61.5% de acerto de direção). Ainda assim, o ganho sobre o baseline é **marginal** (−0.0017 em log-loss), dentro do ruído. É o teto do que a forma multiplicativa entrega aqui.
+- **Gols** — v1 fica **+0.0170 pior que o baseline**. A correlação de sinal (0.054) é indistinguível de ruído; o produto ataque×defesa não carrega direção jogo-a-jogo para gols.
+- **Cartões** — v1 fica **+0.0347 pior que o baseline**. Correlação **−0.027**: ruído puro, o pior caso. Há também um viés de nível em Euro2024 (v1 prevê 3.41 cartões/jogo vs 4.59 reais, −1.17), mas mesmo corrigindo o nível não haveria discriminação a extrair.
+
+RPS truncado@20 (agregado) confirma: escanteios v1 (1.993) < baseline (2.029); gols (0.828 vs 0.800) e cartões (1.448 vs 1.372) pioram.
+
+## M2.4 A tentativa de divisor local (caminho A) e sua falha
+
+O diagnóstico sugeriu que o problema de escanteios poderia ser de **escala**: o divisor `média_do_torneio` é uma média expansiva **global** que mistura confederações de base diferente (cartões por-time: Euro 2.29 · CopaAm 2.08 · AFCON 1.83). Testou-se trocar o divisor de escanteios por uma **média local por-torneio** (expansiva dentro do torneio, leak-free; fallback à global no 1º jogo de cada torneio — apenas 1 jogo/torneio caiu no fallback).
+
+**Falhou.** Log-loss agregado de escanteios **piorou de 0.6760 → 0.7361** (Euro2024 foi de 0.6630 → 0.7914; só CopaAm2024 melhorou). A hipótese "problema é escala corrigível pelo divisor" **não se sustentou**: o divisor médio mal se move (Euro local 4.56 vs global 4.58) — não é efeito de nível, é **variância**. A média expansiva dentro do torneio tem amostra minúscula no começo de cada edição, oscila muito e **injeta ruído em λ** (corr caiu de 0.227 → 0.154; PIT menos uniforme). Uma "taxa local" limpa exigiria a média do torneio inteiro, que **vazaria**. **v1-global permanece a melhor variante de escanteios.**
+
+Este experimento negativo não é um beco sem saída: ele **descarta empiricamente** a hipótese concorrente "o problema é escala corrigível pelo divisor", estreitando o diagnóstico para "**teto de sinal baixo**" em vez de deixá-lo como suposição. Eliminar uma hipótese rival é evidência a favor da conclusão principal.
+
+## M2.5 Calibração vs discriminação
+
+O PIT do v1 é razoavelmente plano nos 3 alvos (médias 0.482 / 0.492 / 0.526, histogramas 5-bins sem picos fortes) ⇒ **o v1 é calibrado**. O gargalo **não é calibração, é discriminação**: o modelo acerta o nível médio mas não separa jogo-a-jogo. Isso indica que o **teto de previsibilidade** de over/under de contagem a partir de features de forma pré-jogo é **intrinsecamente baixo** — resultado válido por §6.2, análogo (em espírito) ao teto do Tier 1 do Modo 1: features de forma não distinguem os casos que mais importam. Não é defeito de implementação.
+
+## M2.6 Decisão registrada: caminho B (GLM) NÃO justificado
+
+O §5.6 prevê escalar para um GLM sobre as 25 features **só se** o v1 não superar o baseline. Os números dizem para **não** escalar:
+
+- **Escanteios** já toca o teto de sinal (corr 0.227) — um GLM não encontraria muito mais direção.
+- **Gols e cartões** têm corr ≈ 0. Ajustar um GLM sobre 259 jogos para prever alvos sem sinal direcional **amplificaria ruído** — exatamente o erro de overfit diagnosticado no Modo 1 (isotonic com dados escassos piorou tudo). Mais capacidade de modelo sobre sinal ausente não cria sinal.
+
+Mover gols/cartões exigiria **features novas** (árbitro do jogo, disciplina do confronto, importância/estágio, xG quando houver), **não um novo modelo** — e isso está fora do escopo do v1.
+
+**Benchmark contra linha de mercado:** pendente — não há coleta de odds. Pela §4.3, só gols estaria habilitado a comparar contra linha (90min), e gols é justamente um resultado negativo — prioridade baixa.
+
+### Conclusão do v1 (Modo 2)
+Uma variante (escanteios) supera o baseline por margem marginal e com sinal real mas de teto baixo; gols e cartões não superam, sendo cartões ruído puro. O v1 está correto e calibrado — o limite é de sinal, não de implementação. Escalar para GLM não se justifica; o próximo lever honesto é **dados/features novas**, não mais modelo — e a candidata mais provável de carregar sinal direcional para cartões é o **árbitro nominal** (efeito de árbitro sobre cartões é documentado e é pré-jogo observável), o ponto de partida natural.
