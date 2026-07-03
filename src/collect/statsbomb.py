@@ -17,9 +17,18 @@ Uso:
   python src/collect/statsbomb.py --download # baixa matches para cache local
   python src/collect/statsbomb.py --force    # ignora cache, refaz download
 
+Derivação de contagem (Modo 2 — escanteios/cartões), FONTE ÚNICA DE VERDADE:
+  escanteio = evento Pass com pass.type.name == "Corner".
+  ⚠ CARTÕES vêm de DOIS tipos de evento — Bad Behaviour (má conduta sem falta) E
+    Foul Committed (cartão de falta, a MAIORIA). Contar só Bad Behaviour subconta ~70%
+    dos amarelos (provado pelo gate da Camada 3 vs SofaScore em 83 jogos).
+    amarelo = Yellow Card + Second Yellow · vermelho = Red Card + Second Yellow.
+  Use derive_counts()/derive_match_totals() — NÃO reimplemente a regra em cada consumidor.
+
 Import:
   from src.collect.statsbomb import fetch_all_training_matches
   from src.collect.statsbomb import fetch_matches, fetch_events
+  from src.collect.statsbomb import derive_counts, derive_match_totals
 """
 from __future__ import annotations
 
@@ -28,6 +37,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from collections import defaultdict
 from pathlib import Path
 from typing import NamedTuple
 
@@ -178,6 +188,65 @@ def fetch_events(match_id: int, *, use_cache: bool = True) -> list[dict]:
     data = json.loads(_fetch_url(url))
     _save_cache(name, data)
     return data
+
+
+# ---------------------------------------------------------------------------
+# Derivação de contagem (escanteios + cartões) — FONTE ÚNICA DE VERDADE
+# ---------------------------------------------------------------------------
+# Chaves do dicionário por time retornado por derive_counts().
+COUNT_KEYS: tuple[str, ...] = ("corners", "yellow", "red")
+
+
+def derive_counts(events: list[dict]) -> dict[str, dict[str, int]]:
+    """Deriva escanteios e cartões POR TIME a partir dos eventos de uma partida.
+
+    Fonte ÚNICA de verdade da derivação de contagem do StatsBomb — validada contra
+    o SofaScore em 83 jogos pelo gate da Camada 3 (src/evaluate/cross_validation.py).
+    Todo consumidor (probes, cross-validation, features) DEVE usar esta função em vez
+    de reimplementar a regra, para não recriar divergência de definição.
+
+    Regra:
+      escanteio = evento Pass com pass.type.name == "Corner"  (team = quem cobra)
+      ⚠ CARTÕES vêm de DOIS tipos de evento — usar só um subconta ~70% dos amarelos:
+          · Bad Behaviour  → bad_behaviour.card.name   (má conduta SEM falta)
+          · Foul Committed → foul_committed.card.name   (cartão de falta — a maioria)
+      amarelo  = Yellow Card + Second Yellow   (todo 2º amarelo é um amarelo MOSTRADO)
+      vermelho = Red Card + Second Yellow       (2º amarelo / vermelho direto = expulsão)
+
+    Retorna {team_name: {"corners": int, "yellow": int, "red": int}}. Times sem nenhum
+    evento contável não aparecem no dicionário — use .get(team, {...}) ou derive_match_totals().
+    """
+    counts: dict[str, dict[str, int]] = defaultdict(
+        lambda: {"corners": 0, "yellow": 0, "red": 0}
+    )
+    for e in events:
+        team = e.get("team", {}).get("name")
+        if team is None:
+            continue
+        etype = e.get("type", {}).get("name")
+        if etype == "Pass" and e.get("pass", {}).get("type", {}).get("name") == "Corner":
+            counts[team]["corners"] += 1
+            continue
+        # Cartões: Bad Behaviour (má conduta) E Foul Committed (cartão de falta). Ambos contam.
+        card = None
+        if etype == "Bad Behaviour":
+            card = e.get("bad_behaviour", {}).get("card", {}).get("name")
+        elif etype == "Foul Committed":
+            card = e.get("foul_committed", {}).get("card", {}).get("name")
+        if card == "Yellow Card":
+            counts[team]["yellow"] += 1
+        elif card == "Second Yellow":  # amarelo MOSTRADO + expulsão (paridade SofaScore)
+            counts[team]["yellow"] += 1
+            counts[team]["red"] += 1
+        elif card == "Red Card":
+            counts[team]["red"] += 1
+    return dict(counts)
+
+
+def derive_match_totals(events: list[dict]) -> dict[str, int]:
+    """Soma derive_counts() sobre os dois times. Retorna {"corners","yellow","red"}."""
+    per_team = derive_counts(events)
+    return {k: sum(t[k] for t in per_team.values()) for k in COUNT_KEYS}
 
 
 # ---------------------------------------------------------------------------
