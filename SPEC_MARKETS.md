@@ -262,13 +262,16 @@ Um modelo de contagem por alvo, por time. Incremental — começar simples.
 ### 5.1 Gols
 - **Poisson** por time (baseline). Evoluir para **Poisson bivariado / Dixon-Coles** se a validação
   mostrar correlação relevante entre gols de A e B. Deriva placar exato, over/under, BTTS.
+- Target: placar de **90min** (`*_goals_reg`), excluindo prorrogação e pênaltis (§4.3).
 
 ### 5.2 Escanteios
 - **Poisson** por time. Verificar dispersão; se sobredisperso, migrar para Negative Binomial.
+- Target: contagem de **jogo inteiro** (inclui prorrogação — única régua exposta pela fonte, §4.3).
 
 ### 5.3 Cartões
 - **Negative Binomial** por time (assume sobredispersão — cartão tem variância > média, o que o
   Poisson não captura). Deriva over/under de cartões, total por time.
+- Target: contagem de **jogo inteiro** (inclui prorrogação, §4.3).
 
 ### 5.4 Calibração
 - Distribuições de contagem precisam ser **calibradas** (lição do Modo 1: calibração foi o maior ganho).
@@ -277,7 +280,26 @@ Um modelo de contagem por alvo, por time. Incremental — começar simples.
 ### 5.5 Baseline de comparação obrigatório
 Cada alvo compara contra um baseline ingênuo: **taxa média do torneio como parâmetro Poisson fixo**
 (ex.: "todo time faz a média histórica de escanteios"). O modelo só se justifica se superar isso —
-mesmo critério de honestidade do §6 do SPEC.md.
+mesmo critério de honestidade do §6 do SPEC.md. O baseline é Poisson-de-taxa-média-do-torneio para
+**TODOS** os alvos, **inclusive cartões**: comparar o modelo NegBin de cartões contra um baseline
+Poisson de taxa média é **intencional** — o baseline ingênuo é único (taxa média), independente da
+família do modelo candidato.
+
+### 5.6 Forma funcional do modelo v1 (PINADA antes de qualquer `fit()`)
+**Caminho A (v1, padrão)** — modelo multiplicativo estilo Dixon-Coles simplificado, **sem parâmetro
+ajustado por otimização**:
+
+    λ_alvo(time) = ataque_shrunk(time) × defesa_shrunk(oponente) / média_do_torneio
+
+- **ataque** = taxa A-FAVOR shrunk do time (janela N=10, shrink k=5, §4); **defesa** = taxa CONTRA
+  shrunk do oponente. Reusa exatamente as features de `counts.py` — **zero parâmetro otimizado** no v1.
+- **Sem fator casa** (sede neutra em torneios de seleção).
+- **NegBin (cartões):** parâmetro de dispersão `r` **GLOBAL** (um por torneio inteiro), não por time.
+- **Caminho B (escalada condicional):** GLM sobre as 25 features **só se** o v1 não superar o baseline
+  §5.5. Registrado como escalada, **não** como plano.
+- **Validação:** split **temporal** espelhando o Modo 1 (§7), **codificado** (nunca k-fold aleatório).
+- **Métrica de critério:** log-loss de mercado (§6, com o escopo por campo da §4.3 — realizado p/ os 3
+  alvos, linha só p/ gols). **Diagnóstico:** RPS truncado em 20 + PIT.
 
 ---
 
@@ -285,11 +307,15 @@ mesmo critério de honestidade do §6 do SPEC.md.
 
 ### 6.1 Métricas
 - **Contagem (média):** MAE e RMSE do número previsto vs real, por alvo.
-- **Distribuição:** log-loss dos mercados binários derivados (over/under nas linhas de mercado).
+- **Distribuição:** log-loss dos mercados binários derivados (over/under). **Escopo por campo (§4.3):**
+  contra **realizado** para os 3 alvos; contra **linha de mercado** apenas para **gols** (90min) —
+  escanteios/cartões vs linha ficam bloqueados até confirmar a regra de liquidação da casa.
 - **Calibração:** PIT / reliability da distribuição de contagem.
 
 ### 6.2 Critério de sucesso (por alvo, na validação temporal)
-1. **Superar o baseline de taxa média** (Poisson fixo) em log-loss dos mercados derivados.
+1. **Superar o baseline de taxa média** (Poisson fixo) em log-loss dos mercados derivados, medido
+   contra **realizado** (válido p/ gols, escanteios e cartões) e, adicionalmente, contra **linha de
+   mercado apenas para gols** (§4.3 — escanteios/cartões vs linha bloqueados até confirmar liquidação).
 2. **Erro de contagem não pior que o piso de medição** quantificado pela Camada 3 (§2.3 função 2) —
    não se cobra do modelo precisão maior que a das fontes.
 3. **Calibração razoável** da distribuição.
@@ -392,8 +418,12 @@ Dois passos são bloqueadores. Não pular — mesma disciplina do §10 do SPEC.m
 
 3. **Build de features de contagem** `counts.py` (§4), unindo contagens + contexto + ranking.
 
-4. 🟡 **GATE DE PARIDADE DO MODO 2** — `test_counts_parity.py` (temporal + entre fontes). Nenhum
-   `fit()` antes de passar.
+4. ✅ **CONCLUÍDO — GATE DE PARIDADE DO MODO 2.** `tests/test_counts_parity.py` (11 testes): paridade
+   **temporal** (corte estrito `<`), de **colunas** e de **valores** treino↔inferência. A paridade de
+   FEATURES **entre fontes é trivial por construção** (SofaScore-only nos dois lados, §2.4) — não há
+   segunda fonte no vetor de features. O StatsBomb permanece como **validador ground-truth** do gate de
+   3 pernas (`cross_validation --check-cache`): cache==API **394/394** exato, API~StatsBomb 97%/99%,
+   cache~StatsBomb nos 83. **Nenhum `fit()` antes deste gate — agora liberado.**
 
 5. **Modelos de contagem** por alvo (§5) + baseline de taxa média + calibração.
 
