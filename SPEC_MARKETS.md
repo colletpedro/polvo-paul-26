@@ -208,6 +208,44 @@ Orientadas pela mesma convenção A/B do Modo 1 (A = maior ranking FIFA, §1.4 d
 - Presença condicional do SofaScore: campo ausente de cartão = 0 (nunca imputar valor arbitrário).
 - Encoding de confederação/fase idêntico ao Modo 1, para consistência.
 
+### 4.3 Definição temporal dos targets de contagem
+Régua temporal por mercado (decisão fechada, não reabrir sem motivo forte):
+
+- **GOLS:** target e feature = placar de 90min (`*_goals_reg` / normaltime do SofaScore),
+  EXCLUINDO prorrogação e pênaltis. Escolha consciente, alinhada ao scoring de 90min do Modo 1
+  (`live_score.py`) e à convenção de mercado de gols. Feature e target lêem o MESMO campo
+  (`_team_side_counts`, `counts.py:141-142`) — sem mismatch histórico-sujo/alvo-limpo.
+
+- **ESCANTEIOS e CARTÕES:** target e feature = jogo inteiro, INCLUINDO prorrogação. Não por
+  escolha de conveniência, mas porque o SofaScore não expõe variante 90min dessas contagens em
+  NENHUM ponto (treino ou inferência ao vivo). A observabilidade no scoring força jogo-inteiro:
+  só se pode treinar pra prever o que se consegue observar ao pontuar, e a única contagem
+  observável de escanteio/cartão na WC2026 (SofaScore) é a de jogo inteiro. É simétrica
+  feature/target (nenhuma métrica mistura réguas dentro de si).
+
+- **ASSIMETRIA CONHECIDA:** gols=90min, escanteios/cartões=jogo-inteiro. Afeta apenas jogos de
+  mata-mata que foram à prorrogação (nunca jogos de grupo). LIMITAÇÃO: a régua jogo-inteiro de
+  escanteio/cartão pode NÃO casar com a liquidação padrão de linhas de casa de aposta (usualmente
+  90min). Qualquer benchmark do Modo 2 contra linha real de mercado exige confirmar antes a regra
+  de liquidação da linha, sob pena de comparação inválida.
+
+- **ESCOPO DE VERIFICAÇÃO do fix reg90 de gols:** confirmado por medição em 9/9 jogos
+  ET-sem-pênalti, via oráculo StatsBomb (período+minuto), cobrindo 5 edições e 3 confederações
+  (WC2018, Euro2020×4, Euro2024×2, CopaAm2024, AFCON2023). Não medido: 10 jogos pós-90min em
+  CopaAm2021 (3) e AFCON2021 (7), ausentes do StatsBomb — aceites por inferência estrutural (campo
+  consistente nas 5 edições testadas), aceite consciente. A superfície de risco real é ≤10 (só o
+  subconjunto ET-depois-pênalti; jogos direto-nos-pênaltis têm normaltime=90min trivialmente).
+
+- **Resolução de benchmark por campo.** O Modo 2 será avaliado em dois níveis, com escopo distinto
+  por mercado: (a) *benchmark contra realizado* — válido para os três mercados (gols, escanteios,
+  cartões), sem restrição, usando a régua temporal definida acima para cada campo; (b) *benchmark
+  contra linha de mercado* — habilitado apenas para gols, cuja régua (90min via `*_goals_reg`)
+  coincide com a liquidação padrão de linhas de gols. Para escanteios e cartões, o benchmark contra
+  linha fica **bloqueado** até que a regra de liquidação da casa de referência seja confirmada: a
+  régua jogo-inteiro destes campos inclui prorrogação, divergindo sistematicamente da liquidação
+  90min exatamente nos jogos de mata-mata — o subconjunto onde o modelo opera ao vivo. A comparação
+  contra realizado não é afetada por esta limitação.
+
 ---
 
 ## 5. Arquitetura do modelo
