@@ -5,7 +5,10 @@ Fluxo:
   2. Busca resultados FINISHED via football-data.org (cache por padrão; --force recarrega).
   3. Converte score API → result_90min (A_win / draw / B_win), respeitando:
        - EXTRA_TIME / PENALTY_SHOOTOUT → draw nos 90 min (foram iguais).
-  4. Preenche coluna actual_result no CSV e grava de volta.
+  4. Preenche coluna actual_result no CSV e grava de volta. Se uma célula JÁ preenchida
+     divergir do resultado recém-computado (ex.: a API corrigiu duration/winner depois da
+     primeira pontuação), a célula é CORRIGIDA e a reconciliação é logada no stdout
+     (match, valor_antigo → valor_novo) — nunca corrigida silenciosamente.
   5. Calcula log-loss individual e acumulado do modelo.
   6. Calcula log-loss do mercado (probas hardcoded de RESULTS.md §6.1) nos mesmos jogos.
   7. Imprime resumo: jogos decididos, jogos pendentes, modelo vs mercado.
@@ -169,13 +172,17 @@ def _ll(p: float) -> float:
 def score_log(
     rows: list[dict[str, str]],
     match_index: dict[int, dict[str, Any]],
-) -> tuple[list[dict[str, str]], list[dict[str, Any]]]:
-    """Preenche actual_result nas linhas do log e retorna (rows_atualizadas, scored).
+) -> tuple[list[dict[str, str]], list[dict[str, Any]], list[dict[str, Any]]]:
+    """Preenche actual_result nas linhas do log e retorna (rows_atualizadas, scored, reconciled).
 
     scored: lista de dicts, um por match_id único já FINISHED, com:
       match_id, team_A, team_B, actual_result,
       P_A_win, P_draw, P_B_win (modelo),
       ll_model, ll_market (mercado), predicted_class, correct.
+
+    reconciled: lista de dicts para células JÁ preenchidas que divergiram do resultado
+      recém-computado e foram CORRIGIDAS (nunca silenciosamente): match_id, team_A,
+      team_B, old, new.
     """
     # Deduplica: para cada match_id, pega a primeira linha (mesmo modelo).
     seen: dict[int, dict[str, str]] = {}
@@ -230,15 +237,28 @@ def score_log(
         })
 
     # Actualiza actual_result em TODAS as linhas do log (inclui duplicados de várias runs).
+    # Célula vazia → preenche. Célula JÁ preenchida e DIVERGENTE do resultado recém-computado
+    # (ex.: API corrigiu duration/winner após a primeira pontuação) → CORRIGE e registra a
+    # reconciliação (nunca corrige silenciosamente).
+    reconciled: list[dict[str, Any]] = []
     for row in rows:
         mid = int(row["match_id"])
         match_result = next(
             (s["actual_result"] for s in scored if s["match_id"] == mid), None
         )
-        if match_result and not row.get("actual_result"):
+        if not match_result:
+            continue
+        existing = row.get("actual_result") or ""
+        if not existing:
+            row["actual_result"] = match_result
+        elif existing != match_result:
+            reconciled.append({
+                "match_id": mid, "team_A": row["team_A"], "team_B": row["team_B"],
+                "old": existing, "new": match_result,
+            })
             row["actual_result"] = match_result
 
-    return rows, scored
+    return rows, scored, reconciled
 
 
 # ---------------------------------------------------------------------------
@@ -267,12 +287,21 @@ def main(force: bool = False) -> None:
         print(f"Log vazio ou não encontrado: {_LOG_PATH}")
         return
 
-    rows, scored = score_log(rows, match_index)
+    rows, scored, reconciled = score_log(rows, match_index)
     _save_log(rows)
 
     # Pendentes: match_ids no log que ainda não têm resultado
     scored_ids = {s["match_id"] for s in scored}
     pending_ids = {int(r["match_id"]) for r in rows} - scored_ids
+
+    # ---- Reconciliações (célula já preenchida que divergiu e foi corrigida) ----
+    if reconciled:
+        print()
+        print(f"⚠ RECONCILIAÇÃO — {len(reconciled)} célula(s) corrigida(s) "
+              f"(dado da API atualizado desde a última pontuação):")
+        for r in reconciled:
+            print(f"  {r['team_A']} vs {r['team_B']}: "
+                  f"{r['old']} → {r['new']}  (motivo: dado da API atualizado)")
 
     # ---- Jogos decididos ----
     print()
