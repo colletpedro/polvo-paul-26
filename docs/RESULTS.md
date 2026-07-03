@@ -209,6 +209,24 @@ Este jogo é o **principal caso de teste ao vivo** da v1:
 
 O resultado de Bélgica×Senegal e dos outros 12 jogos do LAST_32 será registrado em `data/processed/predictions_log.csv` (coluna `actual_result`) para avaliação post-hoc assim que os jogos terminem.
 
+#### Post-hoc (atualizado 2026-07-03)
+
+O jogo terminou **2-2 nos 90 minutos** — Bélgica só decidiu na prorrogação (3-2). Pela régua de 90min do Modo 1 (`live_score.py`: `EXTRA_TIME`/`PENALTY_SHOOTOUT` → empate), o resultado é **draw**.
+
+Este é exatamente o segundo cenário que o §6.4 havia antecipado: o mercado estava mais próximo da realidade do que o modelo. O modelo deu 61.4% para Bélgica vencer nos 90min (a previsão mais confiante das 13) num jogo que na verdade terminou empatado — log-loss individual **1.5799**, um dos piores do lote. Não há indício de que o modelo tenha "captado algo que o mercado subestimava"; o caso se resolveu **contra** a v1.
+
+**Nota de reconciliação:** a primeira pontuação (rodada em 2026-07-01, quando o jogo havia acabado de terminar) registrou `A_win` no log — o feed da football-data.org, no momento da consulta, aparentemente ainda não expunha o campo `duration=EXTRA_TIME` de forma completa. A consulta seguinte à API (2026-07-03) já retornava a informação de prorrogação corretamente; `live_score.py` foi ajustado para reconciliar (corrigir e logar) células já preenchidas que divergem de uma nova leitura, em vez de nunca revisitar dados antigos.
+
+**Acumulado atualizado (11 jogos decididos até 2026-07-03):**
+
+| | log-loss |
+|---|---|
+| Modelo | **0.9237** |
+| Mercado | **0.7641** |
+| Gap | **+0.1596** (modelo pior que o mercado) |
+
+Acurácia ao vivo: 7/11 (63.6%). Uma execução anterior deste acumulado (antes da correção de Bélgica×Senegal) havia reportado 0.8358 vs 0.6772 — esses números **não são reproduzíveis** com o dado atual da API e ficam superados por este post-hoc; o gap direcional (modelo pior que o mercado) se mantém nos dois cálculos.
+
 ---
 
 # Modo 2 — Mercados de contagem (v1)
