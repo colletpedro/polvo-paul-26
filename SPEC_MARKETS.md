@@ -159,6 +159,13 @@ e medição de degradação contra os jogos de seleção. Registrado como risco,
 ### 2.6 Sondagens de cobertura já executadas (2026-07-01)
 - `src/collect/check_counts_coverage.py` — confirmou derivação de escanteio/cartão no StatsBomb em
   todas as 6 competições, estrutura 100% consistente. 314 partidas, 86 de mata-mata.
+  **Derivação canônica (corrigida 2026-07-02 pelo gate da Camada 3):** cartão vem de DOIS tipos de
+  evento — `Bad Behaviour.card` **E** `Foul Committed.card` (a maioria dos amarelos); a derivação antiga
+  só olhava `Bad Behaviour` e **subcontava ~70% dos amarelos**. Regra única em
+  `statsbomb.derive_counts`: amarelo = Yellow + Second Yellow · vermelho = Red + Second Yellow.
+  **Médias por jogo (314 partidas, contagem total dos dois times):** ~9.1 escanteios · ~3.5 amarelos ·
+  ~0.13 vermelhos. Por competição (amarelos/jogo): WC2022 3.5 · WC2018 3.2 · Euro2024 4.5 · Euro2020 3.0 ·
+  CopaAm2024 3.9 · AFCON2023 3.4. (Antes da correção os amarelos apareciam ~1/jogo — subestimados.)
 - `src/collect/check_sofascore_coverage.py` — confirmou acesso via `curl_cffi`, 100% de cobertura de
   `/statistics` em torneios recentes + WC2026, campos-chave e rate limit.
 - `src/collect/check_sofascore_depth.py` — passo 0 (2026-07-01): descoberta de IDs (Fase A) + cobertura
