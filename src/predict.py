@@ -31,6 +31,7 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).parents[1]))
 
 from src.collect.footballdata import fetch_matches
+from src.evaluate.live_score import _build_match_index, _resolve_to_ab
 from src.features.tier1 import FEATURE_COLS, build_inference_dataset
 from src.models.baseline import CLASSES
 from src.models.calibrated import run as train_calibrated
@@ -151,6 +152,13 @@ def run_predictions() -> dict:
     # Enriquece com utcDate completo para filtro de kickoff
     infer_df["utcDatetime"] = infer_df["match_id"].map(utcdates)
 
+    # Índice de resultado de 90min (regularTime), independente do result_90min de
+    # build_inference_dataset() — que usa fullTime e portanto INCLUI prorrogação em
+    # jogos que foram a ET. Reusa a extração já correta de live_score.py (régua do
+    # Modo 1: EXTRA_TIME/PENALTY_SHOOTOUT → draw nos 90min). Só afeta a EXIBIÇÃO de
+    # jogos FINISHED abaixo — não entra em nenhuma feature/previsão.
+    result90_index = _build_match_index(raw_matches)
+
     # --- Classificar cada jogo ---
     predictions: list[dict] = []
     finished:    list[dict] = []
@@ -167,14 +175,22 @@ def run_predictions() -> dict:
         team_b   = row.get("team_B")
         teams_ok = pd.notna(team_a) and pd.notna(team_b)
 
+        match_id = int(row["match_id"])
+        api      = result90_index.get(match_id)
+        result_90min = None
+        if api and api["result_90min_raw"] is not None and teams_ok:
+            result_90min = _resolve_to_ab(
+                api["result_90min_raw"], team_a, api["home_name"], api["away_name"],
+            )
+
         meta = {
-            "match_id": int(row["match_id"]),
+            "match_id": match_id,
             "stage":    row["stage"],
             "team_A":   team_a if teams_ok else "TBD",
             "team_B":   team_b if teams_ok else "TBD",
             "match_date": str(row["match_date"])[:10],
             "kickoff_utc": kickoff.strftime("%Y-%m-%dT%H:%MZ") if kickoff else "—",
-            "result_90min": row.get("result_90min"),
+            "result_90min": result_90min,
         }
 
         if status == "FINISHED":
