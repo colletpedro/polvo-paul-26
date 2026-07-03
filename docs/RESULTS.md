@@ -137,3 +137,74 @@ O objetivo real do projeto é prever a WC2026 em andamento, não otimizar métri
 - Não viola o princípio de paridade treino↔inferência (§2.4)
 
 Otimizações adicionais (Tier 2, mais dados históricos de outras confederações) são evolução futura (§8).
+
+---
+
+## 6. Validação ao vivo — LAST_32 WC2026 vs mercado de apostas
+
+> Previsões geradas em 2026-06-29T20:54Z via `python src/predict.py`.
+> Cache de inferência atualizado com `--force` (football-data.org, dados reais).
+> Probabilidades de mercado: faixas indicativas convertidas de odds médias
+> de casas europeias (Bet365, William Hill, Pinnacle) no dia anterior ao jogo.
+> Confrontos concluídos antes desta escrita: Canadá×África do Sul (A_win ✓),
+> Brasil×Japão (A_win ✓) — não incluídos aqui pois não passaram pelo filtro TIMED.
+
+### 6.1 Tabela de previsões × mercado
+
+Colunas do modelo: P(A) = P(time melhor rankeado vence em 90 min), P(E) = empate, P(B) = P(time pior rankeado vence).
+Mercado: P(favorito) conforme implícita nas odds 1X2, não separada por time A/B.
+
+| Jogo (time A vs time B) | Modelo P(A) | P(E) | P(B) | Predito | Mercado P(fav.) | Alinhamento |
+|-------------------------|-------------|------|------|---------|-----------------|-------------|
+| Morocco vs **Netherlands** | 30.3% | 23.0% | 46.7% | NED | 36–44% (NED) | ≈ alinhado |
+| Norway vs **Ivory Coast** | 32.2% | 23.7% | 44.1% | CIV | 38–46% (CIV) | ≈ alinhado |
+| **France** vs Sweden | 60.1% | 20.7% | 19.2% | FRA | 70–76% (FRA) | ↓ subestima |
+| **Mexico** vs Ecuador | 48.7% | 24.1% | 27.1% | MEX | 52–58% (MEX) | ≈ alinhado |
+| **England** vs Congo DR | 53.6% | 23.4% | 23.0% | ENG | 70–77% (ENG) | ↓ subestima |
+| **Belgium** vs Senegal | **61.4%** | 20.6% | 18.0% | BEL | 55–60% (BEL) | ↑ **supera** ← único |
+| **United States** vs Bosnia-Herz. | 40.3% | 31.9% | 27.8% | USA | 55–62% (USA) | ↓ subestima |
+| **Spain** vs Austria | 54.2% | 24.4% | 21.5% | ESP | 65–72% (ESP) | ↓ subestima |
+| **Portugal** vs Croatia | 56.2% | 22.0% | 21.8% | POR | 54–62% (POR) | ≈ alinhado |
+| **Switzerland** vs Algeria | 54.6% | 20.6% | 24.8% | SUI | 56–63% (SUI) | ≈ alinhado |
+| Australia vs **Egypt** | 30.9% | 24.1% | 45.0% | EGY | 48–55% (EGY) | ↓ subestima |
+| **Argentina** vs Cape Verde Is. | 50.7% | 26.5% | 22.8% | ARG | 82–87% (ARG) | ↓↓ subestima muito |
+| **Colombia** vs Ghana | 50.0% | 27.2% | 22.8% | COL | 58–65% (COL) | ↓ subestima |
+
+### 6.2 Padrão observado: alinhamento em jogos equilibrados, cegueira em desníveis
+
+O modelo comporta-se de forma diferente conforme o grau de desequilíbrio do confronto:
+
+**Jogos equilibrados (entropia > 1.0)** — Morocco×Neth, Norway×CIV, Mexico×ECU, Portugal×CRO, Switzerland×ALG: modelo dentro ou próximo da faixa do mercado. Ambos concordam na direção do favorito, com diferenças ≤ 8 p.p. no P(favorito). As features goals-based capturam bem o sinal quando os times têm histórico recente comparável e ranking próximo.
+
+**Desníveis claros** — Argentina×Cabo Verde (Δrankings = 60 posições), Spain×Austria (Δ = 21), England×Congo DR (Δ = 42), USA×Bosnia (Δ = 42): o modelo subestima dramaticamente o favorito. O caso mais severo é Argentina: o modelo prevê 50.7%, o mercado atribui 82–87%. A diferença de 30+ p.p. não é ruído — é uma falha estrutural.
+
+A causa é direta: o conjunto de treino tem 47 partidas de mata-mata entre seleções de nível similar (WC, Euro, AFCON). **O modelo nunca viu uma seleção de elite enfrentar uma de médio porte no mata-mata**, então não aprendeu a amplificar a diferença de ranking quando ela é grande. Na fase de grupos do treino — que serve apenas como fonte de features — esse padrão existe, mas os 47 confrontos de mata-mata propriamente ditos são entre times que chegaram até lá, criando um viés de seleção: o dataset de treino é sobrerrepresentado de matchups de qualidade.
+
+### 6.3 Conexão com o diagnóstico histórico: efeito de dois lados da calibração sigmoid
+
+Na validação histórica (§4), o XGBoost cru **era superconfiante**: previa vitórias com 70%+ em jogos que terminavam em empate (§4, top-4 erros). A calibração sigmoid corrigiu esse viés — reduzindo probabilidades extremas — e melhorou log-loss em 0.12.
+
+O mesmo mecanismo que resolveu um problema criou outro:
+
+| Situação | XGBoost cru | XGBoost + sigmoid | Mercado |
+|----------|-------------|-------------------|---------|
+| Favorito amplo (Argentina vs Cabo Verde) | ~70% → superconfiante em histórico | **~51% → subconfiante** | ~85% |
+| Favorito moderado (Portugal vs Croácia) | ~65–70% → ligeiramente alto | ~56% → próximo | ~58% |
+| Jogo equilibrado (Mexico vs Ecuador) | ~55% → razoável | ~49% → próximo | ~55% |
+
+O sigmoid "achatou" a curva de probabilidades de forma uniforme. Para jogos equilibrados isso é adequado; para desníveis extremos, o achatamento vai longe demais. Um modelo com mais dados de mismatches — ou uma feature explícita de "magnitude do desequilíbrio" — calibraria de forma assimétrica.
+
+Este é o diagnóstico para a v2: o problema não é a calibração em si, é a falta de exemplos de mismatch no treino que o calibrador não consegue compensar post-hoc.
+
+### 6.4 Caso de teste: Bélgica × Senegal
+
+Bélgica vs Senegal é o único dos 13 jogos onde o modelo (61.4%) **supera a confiança do mercado** (~55–60%). É também o jogo com menor entropia (H=0.933) — o mais "confiante" entre as previsões.
+
+O motivo provável: Bélgica teve desempenho de grupo superior a Senegal nesta edição da WC2026, e as features goals-based capturam essa diferença mais fortemente do que o mercado, que pondera o histórico de ambas as seleções, probabilidades de prorrogação e eventual desempenho da AFCON 2023 (onde Senegal não chegou muito longe).
+
+Este jogo é o **principal caso de teste ao vivo** da v1:
+
+- Se **Bélgica vencer**: evidência de que o modelo captura algo que o mercado subestima neste confronto específico. Resultado favorável à v1.
+- Se **Senegal vencer ou empatar**: resultado consistente com o mercado estar certo e o modelo excessivamente confiante — possível artefato da proeminência de times UEFA no treino (Euro 2020 e Euro 2024 são 30/47 das linhas).
+
+O resultado de Bélgica×Senegal e dos outros 12 jogos do LAST_32 será registrado em `data/processed/predictions_log.csv` (coluna `actual_result`) para avaliação post-hoc assim que os jogos terminem.
