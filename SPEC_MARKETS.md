@@ -462,6 +462,8 @@ Dois passos são bloqueadores. Não pular — mesma disciplina do §10 do SPEC.m
 
 7. **Inferência WC2026 ao vivo** via SofaScore, com degradação graciosa (§7).
 
-### Pré-requisito paralelo (não bloqueia, mas pendente do Modo 1)
-- `src/evaluate/live_score.py` do Modo 1 — instrumento de scoring ao vivo da Copa. Adiado por decisão
-  do usuário para priorizar este spec; permanece confirmado como próximo entregável do Modo 1.
+### Pré-requisito paralelo (Modo 1) — ✅ CONCLUÍDO
+- `src/evaluate/live_score.py` do Modo 1 — instrumento de scoring ao vivo da Copa. **Entregue e
+  rodado** (implementação em `5037cf7`; previsões×mercado do LAST_32 documentadas em
+  `docs/RESULTS.md` §6, commit `af0da6e`): 7 jogos do LAST_32 pontuados com `actual_result`
+  preenchido em `data/processed/predictions_log.csv`. Scoring recorrente conforme os jogos terminam.
