@@ -293,11 +293,18 @@ ajustado por otimização**:
 
 - **ataque** = taxa A-FAVOR shrunk do time (janela N=10, shrink k=5, §4); **defesa** = taxa CONTRA
   shrunk do oponente. Reusa exatamente as features de `counts.py` — **zero parâmetro otimizado** no v1.
+- **`média_do_torneio` = média global EXPANSIVA por-jogo** (só jogos com data < a do jogo corrente) —
+  exatamente a que alimenta o prior do shrinkage em `counts.py` (`_global_prior_means`). É pura de
+  (data, corpus), **leak-free** e **idêntica treino/inferência**. Caso-borda de prior vazio (primeiros
+  jogos de WC2018): segue a MESMA convenção de `counts.py` — prior vazio ⇒ média `= 0.0`; como esses
+  jogos nunca são pontuados na validação (2024), o divisor nunca é 0 no conjunto avaliado (guardar
+  defensivamente mesmo assim: divisor 0 ⇒ sem previsão, nunca fabricar valor).
 - **Sem fator casa** (sede neutra em torneios de seleção).
 - **NegBin (cartões):** parâmetro de dispersão `r` **GLOBAL** (um por torneio inteiro), não por time.
 - **Caminho B (escalada condicional):** GLM sobre as 25 features **só se** o v1 não superar o baseline
   §5.5. Registrado como escalada, **não** como plano.
-- **Validação:** split **temporal** espelhando o Modo 1 (§7), **codificado** (nunca k-fold aleatório).
+- **Validação:** split **temporal explícito** (§7 — corte 2023-01-01, AFCON2023→validação),
+  **codificado** (nunca k-fold aleatório).
 - **Métrica de critério:** log-loss de mercado (§6, com o escopo por campo da §4.3 — realizado p/ os 3
   alvos, linha só p/ gols). **Diagnóstico:** RPS truncado em 20 + PIT.
 
@@ -326,8 +333,24 @@ com features pré-jogo") é resultado válido e documentável, não fracasso.
 ---
 
 ## 7. Validação
-- **Validação temporal**, igual ao Modo 1: treinar em torneios mais antigos, validar em mais recentes.
-  Nunca k-fold aleatório (vaza futuro→passado).
+- **Validação temporal** com **atribuição explícita por edição** (corte limpo em **2023-01-01**),
+  usando as datas REAIS de cada edição no corpus:
+
+  | Conjunto | Edições | Datas reais (corpus) |
+  |----------|---------|----------------------|
+  | **TREINO** | WC2018 · Euro2020 · CopaAm2021 · AFCON2021 · WC2022 | 2018-06 · 2021-06/07 · 2021-06/07 · 2022-01/02 · 2022-11/12 |
+  | **VALIDAÇÃO** | AFCON2023 · Euro2024 · CopaAm2024 | **2024-01/02** · 2024-06/07 · 2024-06/07 |
+
+  Todo o treino é **≤ 2022-12-18**; toda a validação é **≥ 2024-01-13**. Corte único por data, sem
+  sobreposição.
+- **Racional (leak-free):** AFCON2023 foi **jogada em jan–fev de 2024**, portanto qualquer split que a
+  coloque no TREINO com WC2022 na VALIDAÇÃO **vaza futuro→passado** via agregados de treino (λ do
+  baseline §5.5, `r` do NegBin §5.6, `média_do_torneio` §5.6): estimativas informadas por 2024 seriam
+  usadas para pontuar um jogo de 2022. Por isso AFCON2023 vai para a **validação**.
+- **NOTA — não espelha o Modo 1 (intencional):** o split do Modo 1 contém exatamente esse leak
+  (edição jogada em 2024 no treino, edição de 2022 na validação). Registrado como **observação**; o
+  Modo 1 está congelado e **não** é alterado por esta decisão.
+- **Nunca k-fold aleatório** (vaza futuro→passado).
 - **WC2026 estritamente reservada para inferência** — nunca entra em treino/validação.
 - **Degradação graciosa (§3.3 do SPEC.md):** se `/statistics` do SofaScore falhar para um jogo da
   WC2026, esse jogo fica **sem previsão de contagem** e o Modo 1 segue normal. Nunca fabricar valor.
