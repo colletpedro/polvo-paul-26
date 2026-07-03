@@ -448,7 +448,15 @@ Dois passos são bloqueadores. Não pular — mesma disciplina do §10 do SPEC.m
    3 pernas (`cross_validation --check-cache`): cache==API **394/394** exato, API~StatsBomb 97%/99%,
    cache~StatsBomb nos 83. **Nenhum `fit()` antes deste gate — agora liberado.**
 
-5. **Modelos de contagem** por alvo (§5) + baseline de taxa média + calibração.
+5. ✅ **CONCLUÍDO — MODELOS DE CONTAGEM v1.** `src/models/counts_model.py`: baseline Poisson de
+   taxa-média-treino + v1 multiplicativo DC-simplificado (§5.6), split temporal leak-free (§7),
+   convolução NegBin truncada, avaliação log-loss/RPS/PIT (§6). **Veredito medido (validação 135
+   jogos):** escanteios — v1 supera o baseline por margem **marginal** (−0.0017), único alvo com sinal
+   direcional real (corr 0.227); gols e cartões — v1 **não supera** (ruído, corr 0.054 e −0.027).
+   v1 calibrado (PIT plano); o gargalo é discriminação, não calibração — teto de sinal baixo (§6.2,
+   resultado negativo válido). **Caminho B (GLM) NÃO escalado por decisão diagnóstica:** sobre alvos
+   com corr≈0 amplificaria ruído; mover gols/cartões exige features novas, não novo modelo. Detalhes
+   em `docs/RESULTS.md` (Modo 2 v1).
 
 6. **Derivação de mercados** a partir das distribuições ajustadas + métricas (§6).
 
