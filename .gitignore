@@ -16,8 +16,9 @@ venv/
 data/raw/
 data/processed/*
 !data/reference/
-# predictions_log.csv é pré-registro (não re-derivável): versionado como carimbo de tempo
+# logs de pré-registro (não re-deriváveis): versionados como carimbo de tempo das previsões
 !data/processed/predictions_log.csv
+!data/processed/counts_predictions_log.csv
 
 # SO / editor
 .DS_Store
