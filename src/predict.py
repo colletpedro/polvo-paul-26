@@ -12,6 +12,13 @@ Comportamento:
     match_id: uma linha por jogo. Re-previsões atualizam as probabilidades e
     preservam actual_result se já preenchido; jogos novos são anexados.
 
+CONVENÇÃO DE PRÉ-REGISTRO (predictions_log.csv é versionado — exceção no .gitignore):
+    O CSV é o registro de pré-compromisso das previsões (não re-derivável, diferente do
+    cache de coleta). Toda rodada de predict.py (novas previsões) ou de live_score.py
+    (novos resultados / reconciliações) DEVE ser seguida de `git commit` do CSV — o
+    histórico do git funciona como carimbo de tempo do pré-registro (prova de que a
+    previsão existia antes do resultado).
+
 CLI:
     python src/predict.py
     python -m src.predict

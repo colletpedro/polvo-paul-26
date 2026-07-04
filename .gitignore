@@ -14,8 +14,10 @@ venv/
 
 # Dados — cache de coleta é reproduzível (ignorar); reference é versionado (manter)
 data/raw/
-data/processed/
+data/processed/*
 !data/reference/
+# predictions_log.csv é pré-registro (não re-derivável): versionado como carimbo de tempo
+!data/processed/predictions_log.csv
 
 # SO / editor
 .DS_Store
