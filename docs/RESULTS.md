@@ -403,3 +403,21 @@ Direção separada do v1 multiplicativo: um estimador de força **Dixon-Coles cl
 | Euro2024 | 51 | 0.7803 | 0.6985 | +0.0818 |
 
 **Diagnóstico central: o DC é sobreconfiante.** Desvio-padrão de P(over) do DC = 0.197 vs 0.079 do mercado, com a **mesma média** (0.472, ambos próximos da taxa real 0.410) — o DC assume posições mais extremas que o mercado sem ganhar acurácia, e o log-loss pune exatamente esse excesso de confiança. É o mesmo padrão de sobreconfiança já visto na comparação do Modo 1 contra o mercado e no PIT do v1 do Modo 2 (M2.5). Etiqueta honesta: o adversário aqui era **uma casa isolada** (provider único, não consenso) — o alvo mais fácil disponível — e ainda assim o DC perde.
+
+## M2.12 — Fechamento do Modo 2 (desenvolvimento congelado)
+
+Cinco testes de hipótese pós-v1, cada um com mecanismo e critério de saída definidos **antes** de rodar, todos negativos:
+
+1. **Árbitro nominal → cartões** (M2.7): correlação enfraquece com mais histórico do árbitro — ausência real de sinal, não falta de dado.
+2. **Posse → escanteios, in-sample** (M2.8): parcial 0.1252 Pearson, aparentemente real.
+3. **Posse → escanteios, out-of-sample** (M2.8): o sinal do item 2 **morre** no split §7 — GLM com posse piora o GLM sem posse em logloss e RPS.
+4. **Chutes no alvo → gols** (M2.9): incremental in-sample já abaixo do benchmark de corte deixado pelo item 3 — nem chegou a ser testado OOS.
+5. **Dixon-Coles de força vs mercado O/U 2.5** (M2.11): a própria arquitetura de força (não só uma feature) perde do mercado de-vig — de uma casa isolada, o adversário mais fraco disponível — em todo corte.
+
+**Conclusão causal:** taxa-base de contagem em futebol de seleção, com ~259 jogos de treino, janela N=10 e elenco rotativo entre edições, não é recuperável além do que a média histórica shrunk já captura. O mercado — mesmo de uma única casa — precifica melhor que qualquer variante testada neste corpus. O teto é de **regime de dado** (volume + granularidade), não de feature específica nem de forma funcional (multiplicativa v1, GLM aditivo, ou Dixon-Coles de força).
+
+**Estado operacional:**
+- **Escanteios v1** (único alvo com sinal real, corr +0.227, M2.3) **continua em shadow mode ao vivo na WC2026** — o que fecha aqui é desenvolvimento de feature/arquitetura nova, não a operação.
+- Gols e cartões: encerrados sem variante que supere o baseline.
+- BTTS: coletado (`data/probes/odds_ou_btts.jsonl`) mas nunca testado — decisão registrada, não pendência.
+- Desenvolvimento do Modo 2 **congelado** sem motivo forte novo para reabrir.
