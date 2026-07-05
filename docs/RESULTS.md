@@ -305,3 +305,20 @@ Mover gols/cartões exigiria **features novas** (árbitro do jogo, disciplina do
 
 ### Conclusão do v1 (Modo 2)
 Uma variante (escanteios) supera o baseline por margem marginal e com sinal real mas de teto baixo; gols e cartões não superam, sendo cartões ruído puro. O v1 está correto e calibrado — o limite é de sinal, não de implementação. Escalar para GLM não se justifica; o próximo lever honesto é **dados/features novas**, não mais modelo — e a candidata mais provável de carregar sinal direcional para cartões é o **árbitro nominal** (efeito de árbitro sobre cartões é documentado e é pré-jogo observável), o ponto de partida natural.
+
+## M2.7 — Árbitro nominal → cartões (teste isolado, negativo)
+
+Hipótese: o rigor histórico do árbitro (média de cartões nos jogos que apitou antes) carrega sinal sobre cartões do jogo, além do que as features atuais (corr −0.027, M2.3) já não capturam.
+
+**Fonte e blindagem:** `referee.id`/`referee.name` não vêm no cache canônico (`_STAT_KEYS` de `sofascore.py` só extrai corner/cartão/posse/xG) — coletados à parte via `GET /event/{id}` (394/394, 0 nulo, preservado em `data/probes/referees.jsonl`). **Proibido usar os agregados de carreira da API** (`referee.yellowCards`/`redCards`/`games`) como feature — são totais até hoje e vazam jogos futuros; a feature testada foi calculada jogo-a-jogo a partir do próprio corpus, corte temporal `<` estrito, chaveada por `referee.id` (nunca por nome).
+
+**Poder do teste:** 116 árbitros distintos no corpus; mediana 3 jogos/árbitro, máximo 10. 278/394 jogos com ≥1 apitada prévia do mesmo árbitro; 191/394 com ≥2.
+
+**Correlação (feature = média de cartões totais nos jogos anteriores do mesmo árbitro; target = cartões totais do jogo):**
+
+| Amostra | n | Pearson | Spearman |
+|---|---|---|---|
+| ≥1 jogo prévio | 278 | −0.0601 | −0.0744 |
+| ≥2 jogos prévios | 191 | −0.0190 | −0.0408 |
+
+**Veredito: negativo.** A correlação **enfraquece** (não fortalece) quando se exige mais histórico prévio por árbitro — o oposto do padrão esperado se o sinal estivesse sendo apenas diluído por ruído de amostra pequena. Isso descarta "falta de dado" como explicação e aponta para ausência real de sinal nessa formulação. Não virou feature.
