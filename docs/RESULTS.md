@@ -231,7 +231,7 @@ Acurácia ao vivo: 7/11 (63.6%). Uma execução anterior deste acumulado (antes 
 
 # Modo 2 — Mercados de contagem (v1)
 
-> Referência: SPEC_MARKETS.md §5–7 · Stack: Python (SofaScore-only) · Atualizado: 2026-07-03
+> Referência: SPEC_MARKETS.md §5–7 · Stack: Python (SofaScore-only) · Atualizado: 2026-07-05
 
 Alvos: gols, escanteios, cartões — contagem por time, mercados over/under derivados. Este é o resultado do **passo 5** (§10): baseline + modelo v1 + avaliação. A leitura honesta abaixo vale a mesma disciplina do Modo 1: um resultado negativo bem-diagnosticado é resultado, não fracasso (§6.2).
 
@@ -322,3 +322,84 @@ Hipótese: o rigor histórico do árbitro (média de cartões nos jogos que apit
 | ≥2 jogos prévios | 191 | −0.0190 | −0.0408 |
 
 **Veredito: negativo.** A correlação **enfraquece** (não fortalece) quando se exige mais histórico prévio por árbitro — o oposto do padrão esperado se o sinal estivesse sendo apenas diluído por ruído de amostra pequena. Isso descarta "falta de dado" como explicação e aponta para ausência real de sinal nessa formulação. Não virou feature.
+
+## M2.8 — Posse → escanteios (negativo em duas etapas: promissor in-sample, morre out-of-sample)
+
+Hipótese: posse média histórica do time adiciona sinal **incremental** sobre escanteios, além da média histórica de escanteios que o v1 já usa (não interessa a correlação bruta, que é redundante por construção).
+
+**Etapa 1 — incremental in-sample (n=705/788 obs time-jogo elegíveis, ≥1 jogo prévio):**
+
+| Métrica | Pearson | Spearman |
+|---|---|---|
+| Bruta: posse × escanteios reais | 0.2549 | 0.2308 |
+| **Incremental** (parcial, controlando pela média histórica de escanteios do v1) | **0.1252** | 0.0993 |
+
+Sinal aparentemente real e não-redundante — não colapsa para perto de zero ao controlar pelo baseline.
+
+**Etapa 2 — screen out-of-sample (split §7: 259 treino / 135 validação; GLM Poisson por-time, `baseline_feat` e `possession_feat` ambas shrunk k=5/N=10 para paridade de tratamento; score reusado de `counts_model.py` — mesmas `_logloss`/`_rps_trunc`/`_poisson_total_pmf`/linhas [8.5, 9.5, 10.5]):**
+
+| Modelo | logloss | RPS@20 |
+|---|---|---|
+| A: baseline (só escanteios históricos) | 0.6795 | 2.0260 |
+| B: baseline + posse | 0.6877 | 2.0761 |
+| **delta (B − A)** | **+0.0082** | **+0.0501** |
+
+**B piora A nas duas métricas.** Diagnóstico: no treino a posse rouba peso do coeficiente do baseline (padronizado: 0.117 → 0.043), e essa realocação **degrada** a validação — feature correlacionada no treino que não generaliza. Robustez confirmada com features padronizadas (mesmo delta).
+
+**Lição registrada (benchmark de corte para testes futuros):** um incremental in-sample de Pearson ≈ **0.125** já demonstrou não sobreviver a este split. Testes futuros de features incrementais só valem escalar para o screen OOS se materialmente **acima** desse patamar.
+
+## M2.9 — Chutes no alvo → gols (negativo in-sample, não avançou ao OOS)
+
+Hipótese: chutes no alvo médios do time (proxy mecânico de criação de chance) adicionam sinal incremental sobre gols, além da média histórica de gols do v1.
+
+**Fonte:** `shotsOnGoal` ("Shots on target") do `/statistics`, não presente no cache canônico — coletado à parte (394/394, 0 nulo, cobertura 100% uniforme nas 8 edições do corpus, confirmada em amostra de 40 e depois nos 394; preservado em `data/probes/shot_stats.jsonl`).
+
+**Armadilha de nomenclatura documentada:** a chave `totalShotsOnGoal` tem `name` **"Total shots"** (total, não no alvo); a chave `shotsOnGoal` tem `name` **"Shots on target"** (a correta). Extração deve casar chave↔name, nunca assumir pela chave isolada.
+
+**Teste incremental (n=705, mesma metodologia shrunk k=5/N=10 do M2.8):**
+
+| Métrica | Pearson | Spearman |
+|---|---|---|
+| Bruta: chutes no alvo × gols reais | 0.1150 | 0.0754 |
+| **Incremental** (parcial, controlando pela média histórica de gols do v1) | **0.0603** | 0.0210 |
+
+**Veredito: negativo, parado antes do screen OOS.** O incremental (0.0603) é cerca de metade do benchmark de corte estabelecido em M2.8 (0.1252, que já morreu OOS) — não valeria gastar o screen num sinal in-sample mais fraco que um que já sabemos não sobreviver. Nota interpretativa: até a correlação **bruta** de chutes-no-alvo (0.115) é fraca — o proxy mais mecânico de gol que existe quase não correlaciona neste corpus, evidência de **teto de regime de dado** (N=10, elenco rotativo de seleção), não de feature mal escolhida.
+
+## M2.10 — Odds de mercado: sondagem e coleta (infraestrutura + limitações da fonte)
+
+Pré-requisito para comparar o Modo 2 contra a linha de mercado (pendente desde M2.6): sondagem de disponibilidade de odds O/U de gols no SofaScore.
+
+**Endpoint confirmado:** `GET /api/v1/event/{id}/odds/1/all` → `{"markets": [...], "eventId": ...}`. **Provider único** (`sourceId=69800370` constante em todos os jogos testados) — **não é consenso de mercado**, é uma casa de apostas isolada. Odds em formato **fracionário** (`"X/Y"`, decimal = X/Y + 1).
+
+**Mercados relevantes:** `marketId=9` "Match goals" — O/U com múltiplas linhas simultâneas por jogo (`choiceGroup` de "0.5" a "7.5" conforme o jogo); BTTS nativo (`marketName="Both teams to score"`, choices Yes/No).
+
+**Buraco de cobertura confirmado:** **AFCON2023 — 0/11 jogos amostrados têm qualquer mercado além de 1X2** (amostra ampliada de 3→11 especificamente para não concluir de N pequeno). É um buraco de **edição específica**, não uma tendência de época suave (AFCON2021, mais antiga, tem cobertura perfeita). AFCON2023 é uma das 3 edições do split de validação §7 — ficou fora de qualquer teste que dependa de odds. Também 5 jogos individuais de WC2018 sem linha O/U (causa não investigada).
+
+**Coleta realizada:** O/U 2.5 gols + BTTS, decimal bruto e de-vig (normalização over/under para somar 1), nas 7 edições com cobertura confirmada (AFCON2023 excluída) — **337/342 jogos (98,5%)**. Preservado em `data/probes/odds_ou_btts.jsonl`. **BTTS coletado mas nunca testado** — decisão registrada: sem valor de informação após o resultado negativo do M2.11 abaixo.
+
+## M2.11 — Dixon-Coles de força vs mercado O/U 2.5 (quinto negativo — fecha o grupo "rotear em volta do teto")
+
+Direção separada do v1 multiplicativo: um estimador de força **Dixon-Coles clássico** (ataque/defesa por seleção + fator ρ de correção de placares baixos, sem fator casa — sedes neutras —, sem decaimento temporal), calibrado por MLE **só nos gols reais do treino**, testado contra a probabilidade de-vig do mercado (M2.10) na linha O/U 2.5.
+
+**Blindagens de vazamento ativas:** odds nunca entraram na estimação (só benchmark); parâmetros calibrados exclusivamente nos 259 jogos de treino do split §7 e congelados antes de pontuar a validação; time sem histórico no treino usa fallback definido no treino (atk = média do treino, def = 0).
+
+**Calibração:** MLE convergiu (`success=True`, nll=640.64), ρ=0.0738 (dentro dos bounds). Sanity de força sem inversão de sinal: France (atk +0.96, 2.00 gols/jogo no treino), England (atk +0.83), Italy (def +1.18, 0.43 sofridos/jogo), Brazil (def +1.07) no topo — consistente com o esperado. Distribuição de P(over 2.5) não colapsou (min 0.053, mediana 0.466, max 0.931).
+
+**Resultado (validação: 83 jogos com odds válidas — Euro2024 51 + CopaAm2024 32; AFCON2023 sem odds; fallback usado em 18/83, times Albania/Georgia/Jamaica/Romania/Slovenia):**
+
+| Fonte | log-loss O/U 2.5 |
+|---|---|
+| DC (força, só gols) | 0.7394 |
+| Mercado de-vig (provider único) | 0.6828 |
+| **delta (DC − mercado)** | **+0.0566** (DC pior) |
+
+**Robustez — DC perde em todo corte**, não é artefato de fallback nem de uma edição só:
+
+| Corte | n | DC | mercado | delta |
+|---|---|---|---|---|
+| Sem fallback (ambos times conhecidos) | 65 | 0.7272 | 0.6731 | +0.0542 |
+| Com fallback (≥1 time novo) | 18 | 0.7832 | 0.7180 | +0.0652 |
+| CopaAm2024 | 32 | 0.6742 | 0.6578 | +0.0164 |
+| Euro2024 | 51 | 0.7803 | 0.6985 | +0.0818 |
+
+**Diagnóstico central: o DC é sobreconfiante.** Desvio-padrão de P(over) do DC = 0.197 vs 0.079 do mercado, com a **mesma média** (0.472, ambos próximos da taxa real 0.410) — o DC assume posições mais extremas que o mercado sem ganhar acurácia, e o log-loss pune exatamente esse excesso de confiança. É o mesmo padrão de sobreconfiança já visto na comparação do Modo 1 contra o mercado e no PIT do v1 do Modo 2 (M2.5). Etiqueta honesta: o adversário aqui era **uma casa isolada** (provider único, não consenso) — o alvo mais fácil disponível — e ainda assim o DC perde.
