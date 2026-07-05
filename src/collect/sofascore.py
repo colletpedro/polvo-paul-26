@@ -87,6 +87,13 @@ _CONTROLLED_SCOPE: dict[int, dict[int, str]] = {
     1:   {26542: "Euro 2020",            56953: "Euro 2024"},
     133: {26681: "Copa America 2021",    57114: "Copa America 2024"},
     270: {38181: "AFCON 2021",           56021: "AFCON 2023"},
+    # Densificação do corpus (jogos entre-torneios, §10 fase 2) — janelas N=10 hoje
+    # esticam da Euro2024 até a WC2022; NL/AsianCup/GoldCup rejuvenescem a forma recente.
+    246: {16919: "Asian Cup 2019",       51384: "Asian Cup 2023"},
+    140: {23156: "Gold Cup 2019",        36683: "Gold Cup 2021",
+          50492: "Gold Cup 2023",       72840: "Gold Cup 2025"},
+    10783: {16000: "Nations League 18/19", 27595: "Nations League 20/21",
+            40128: "Nations League 22/23", 58337: "Nations League 24/25"},
 }
 
 _WC_TOURNAMENT_ID = 16
