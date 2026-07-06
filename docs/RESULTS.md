@@ -404,20 +404,54 @@ Direção separada do v1 multiplicativo: um estimador de força **Dixon-Coles cl
 
 **Diagnóstico central: o DC é sobreconfiante.** Desvio-padrão de P(over) do DC = 0.197 vs 0.079 do mercado, com a **mesma média** (0.472, ambos próximos da taxa real 0.410) — o DC assume posições mais extremas que o mercado sem ganhar acurácia, e o log-loss pune exatamente esse excesso de confiança. É o mesmo padrão de sobreconfiança já visto na comparação do Modo 1 contra o mercado e no PIT do v1 do Modo 2 (M2.5). Etiqueta honesta: o adversário aqui era **uma casa isolada** (provider único, não consenso) — o alvo mais fácil disponível — e ainda assim o DC perde.
 
-## M2.12 — Fechamento do Modo 2 (desenvolvimento congelado)
+## M2.13 — Fase A: densificação de corpus (sexto negativo)
 
-Cinco testes de hipótese pós-v1, cada um com mecanismo e critério de saída definidos **antes** de rodar, todos negativos:
+Hipótese: o teto do v1 vinha de janelas N=10 **velhas e esparsas** — sem jogos entre-torneios, a "forma recente" de um time na Euro2024 estica até a WC2022 (~2 anos). Nations League, Asian Cup e Gold Cup (2018+) rejuvenesceriam essas janelas; as **mesmas features** (nada novo) mediriam melhor com histórico mais denso e mais fresco.
 
-1. **Árbitro nominal → cartões** (M2.7): correlação enfraquece com mais histórico do árbitro — ausência real de sinal, não falta de dado.
-2. **Posse → escanteios, in-sample** (M2.8): parcial 0.1252 Pearson, aparentemente real.
+**Método:** corpus de features expandido para **1208 jogos** (394 originais + 814 novos das 3 competições; 56 excluídos por `round_name` contendo "qualification", case-insensitive — grafias inconsistentes confirmadas entre edições — e os demais por `has_stats=False`, majoritariamente os 47+ jogos da NL 18/19). **Linhas de treino/validação idênticas** (259/135, split §7, só sobre os 394 originais) — apenas o pool que alimenta janelas/prior mudou, uma variável de cada vez. Asserção de futuro-no-corpus rodou nas 135 linhas de validação e passou: os 198 jogos posteriores a 2024-07-15 (NL 24/25 + Gold Cup 2025) ficaram 100% fora de qualquer janela pelo corte `<` estrito. Sanity: re-rodar o corpus 394 reproduziu **exatamente** todos os números já registrados (0.6777/0.6760 escanteios, 0.6748/0.6918 gols, 0.6585/0.6931 cartões) — validou a replicação do pipeline antes de confiar no resultado denso.
+
+**As janelas de fato rejuvenesceram:** linhas de validação com janela cheia (`n_games=10` nos dois lados) subiram de **23 → 72** de 135; média de `n_games` por lado, **6.76 → 8.15**.
+
+**Resultado (log-loss, validação — 394 vs denso):**
+
+| alvo | v1 (394) | v1 (denso) | Δ | vs baseline |
+|---|---|---|---|---|
+| escanteios | 0.6760 | **0.6868** | **+0.0109 (pior)** | baseline 0.6777 — v1 perde |
+| gols | 0.6918 | 0.6881 | −0.0037 (melhor) | baseline 0.6748 — v1 ainda perde |
+| cartões | 0.6931 | 0.6795 | −0.0136 (melhor) | baseline 0.6585 — v1 ainda perde |
+
+**Correlação de sinal** (a métrica que separa nível de discriminação — mesma do M2.3):
+
+| alvo | corr (394) | corr (denso) |
+|---|---|---|
+| escanteios | 0.227 | **0.187 (regrediu)** |
+| gols | 0.054 | 0.054 (flat) |
+| cartões | −0.027 | **−0.049 (mais negativo)** |
+
+**Diagnóstico central:** as janelas encheram, mas a discriminação **não subiu em nenhum alvo**. A melhora de log-loss em gols/cartões é de **nível**, não de sinal — vem do prior global expansivo se deslocar (cartões 1.923→2.049, +0.126; gols 1.187→1.254, +0.067), corrigindo o viés de subestimação de cartões na Euro2024 já registrado no M2.3, não de o modelo separar melhor jogo-a-jogo. Prova direta: a correlação de sinal não melhorou em lugar nenhum enquanto o log-loss "melhorava". **Nenhum alvo cruzou o baseline.**
+
+**Achado novo e o mais valioso desta fase:** o único alvo com sinal real (escanteios) **regrediu nas duas métricas** ao adicionar dado — não é ruído, é diagnóstico. O sinal de escanteios é **específico do regime de torneio-grande** (Copa do Mundo/Euro/Copa América/AFCON); jogos de Nations League/Asian Cup/Gold Cup têm dinâmica diferente que **dilui** a discriminação em vez de reforçá-la. Consequência prática: adicionar mais torneios de outro regime não apenas não ajuda — **ativamente piora**. Isso fecha preventivamente qualquer tentativa futura de "e se mais torneios?" como alavanca.
+
+**Preservação:** o cache denso (918 jogos NL/Asian Cup/Gold Cup) permanece no corpus — dado re-derivável, coberto pelo manifest (1312 jogos/18 arquivos, já commitado em tarefa anterior). Nota de reuso: se o projeto algum dia quiser um modelo de **regime próprio** (ex.: só Nations League, escopo separado com sua própria dinâmica), o corpus já está pronto para isso. Para o modelo de torneio-grande atual, esses jogos **não devem alimentar features** — diluem sinal, conforme demonstrado acima.
+
+## M2.14 — Fechamento definitivo do Modo 2 (desenvolvimento congelado)
+
+Seis testes de hipótese pós-v1, cada um com mecanismo e critério de saída definidos **antes** de rodar, todos negativos — cobrindo cinco ângulos independentes de ataque ao teto:
+
+1. **Árbitro nominal → cartões** (M2.7, feature externa): correlação enfraquece com mais histórico do árbitro — ausência real de sinal, não falta de dado.
+2. **Posse → escanteios, in-sample** (M2.8, feature existente): parcial 0.1252 Pearson, aparentemente real.
 3. **Posse → escanteios, out-of-sample** (M2.8): o sinal do item 2 **morre** no split §7 — GLM com posse piora o GLM sem posse em logloss e RPS.
-4. **Chutes no alvo → gols** (M2.9): incremental in-sample já abaixo do benchmark de corte deixado pelo item 3 — nem chegou a ser testado OOS.
-5. **Dixon-Coles de força vs mercado O/U 2.5** (M2.11): a própria arquitetura de força (não só uma feature) perde do mercado de-vig — de uma casa isolada, o adversário mais fraco disponível — em todo corte.
+4. **Chutes no alvo → gols** (M2.9, feature de processo): incremental in-sample já abaixo do benchmark de corte deixado pelo item 3 — nem chegou a ser testado OOS.
+5. **Dixon-Coles de força vs mercado O/U 2.5** (M2.11, arquitetura alternativa): a própria forma funcional (não só uma feature) perde do mercado de-vig — de uma casa isolada, o adversário mais fraco disponível — em todo corte.
+6. **Densificação de corpus / janelas frescas** (M2.13, regime de dado): a alavanca que o próprio diagnóstico apontava como causa provável do teto — não move a discriminação em nenhum alvo, e ativamente piora o único alvo com sinal real.
 
-**Conclusão causal:** taxa-base de contagem em futebol de seleção, com ~259 jogos de treino, janela N=10 e elenco rotativo entre edições, não é recuperável além do que a média histórica shrunk já captura. O mercado — mesmo de uma única casa — precifica melhor que qualquer variante testada neste corpus. O teto é de **regime de dado** (volume + granularidade), não de feature específica nem de forma funcional (multiplicativa v1, GLM aditivo, ou Dixon-Coles de força).
+Testou-se, nessa ordem: features de contagem adicionais, feature externa (árbitro), feature de processo (chutes), arquitetura alternativa (Dixon-Coles de força) e regime de dado (densificação). Todas bateram no mesmo teto.
+
+**Conclusão causal final:** a taxa-base de contagem em futebol de seleção, no volume e granularidade disponíveis, não é previsível além do que a média histórica shrunk já captura; o mercado — mesmo de uma única casa, não consenso — precifica melhor que qualquer modelo treinável neste corpus; e o pouco sinal que existe (escanteios) é **específico de regime de torneio** e não generaliza para outros contextos de seleção. O teto é de **dado** — volume, granularidade e regime —, confirmado por cinco ângulos independentes, não de modelo, feature ou forma funcional.
 
 **Estado operacional:**
-- **Escanteios v1** (único alvo com sinal real, corr +0.227, M2.3) **continua em shadow mode ao vivo na WC2026** — o que fecha aqui é desenvolvimento de feature/arquitetura nova, não a operação.
+- **Escanteios v1** (único alvo com sinal real, corr +0.227, M2.3) **continua em shadow mode ao vivo na WC2026** — o que fecha aqui é desenvolvimento de feature/arquitetura/regime de dado novo, não a operação.
 - Gols e cartões: encerrados sem variante que supere o baseline.
 - BTTS: coletado (`data/probes/odds_ou_btts.jsonl`) mas nunca testado — decisão registrada, não pendência.
-- Desenvolvimento do Modo 2 **congelado** sem motivo forte novo para reabrir.
+- Corpus denso (NL/Asian Cup/Gold Cup, `data/raw/sofascore/hist_{10783,246,140}_*.jsonl`) preservado para eventual modelo de regime próprio — não para alimentar features do modelo de torneio-grande atual.
+- Desenvolvimento do Modo 2 **congelado em definitivo**. Reabertura exige motivo forte **novo** — não mais features, torneios ou arquiteturas do mesmo regime de dado, mas uma mudança de regime em si (ex.: fonte com granularidade de jogador/evento in-play).
