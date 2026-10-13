@@ -40,10 +40,26 @@ data/
   processed/   # predictions_log.csv, counts_predictions_log.csv (pré-registro versionado)
   reference/   # rankings FIFA, manifest do cache SofaScore
   probes/      # dados de sondagens de hipótese (árbitro, chutes, odds) — re-deriváveis
-  raw/         # cache de coleta (não versionado — reproduzível via src/collect)
+  raw/         # caches de coleta: sofascore/ e footballdata/ versionados (~1 MB); statsbomb/ NÃO (~1 GB)
 tests/         # testes de paridade treino↔inferência
 docs/
   RESULTS.md   # números completos, histórico de decisões e diagnósticos
+```
+
+## Retomar o projeto (setup do zero)
+
+```bash
+git clone https://github.com/colletpedro/polvo-paul-26.git && cd polvo-paul-26
+python -m venv .venv && .venv/bin/pip install -r requirements.txt curl_cffi   # curl_cffi: obrigatório p/ SofaScore
+# recriar .env com as chaves de API (football-data.org) — o .env NÃO está no repo
+.venv/bin/python src/collect/manifest.py --verify    # confere o cache SofaScore (1312 jogos / 18 arquivos)
+```
+
+**StatsBomb (~1 GB) foi removido do disco e não está no repo.** Só é necessário para a validação da definição
+de cartões (gate da Camada 3) e para o treino do Mode 1 que usa dados abertos. Para reinstalar (sem chave de API):
+
+```bash
+.venv/bin/python src/collect/statsbomb.py --download   # baixa de github.com/statsbomb/open-data para data/raw/statsbomb/
 ```
 
 ## Documentação adicional

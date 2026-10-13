@@ -13,7 +13,11 @@ venv/
 .ipynb_checkpoints/
 
 # Dados — cache de coleta é reproduzível (ignorar); reference é versionado (manter)
-data/raw/
+# data/raw/: ignora tudo, EXCETO os caches pequenos e caros de recoletar (SofaScore ~0,9 MB,
+# football-data ~0,2 MB). StatsBomb (~1 GB) fica de fora: reinstalável, ver README.
+data/raw/*
+!data/raw/sofascore/
+!data/raw/footballdata/
 data/processed/*
 !data/reference/
 # logs de pré-registro (não re-deriváveis): versionados como carimbo de tempo das previsões
